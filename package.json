@@ -1,0 +1,16 @@
+{
+  "name": "notion-float",
+  "version": "1.0.0",
+  "description": "Notion 待办桌面悬浮窗 (非官方)",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "package": "node scripts/generate-ico.js && electron-packager . Notion-Float --platform=win32 --arch=x64 --out=dist --overwrite --asar --icon=assets/icon.ico --app-version=1.0.0 --ignore=\"^/dist\" --ignore=\"^/_capture\" && node scripts/prune.js"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-packager": "^17.1.2"
+  }
+}

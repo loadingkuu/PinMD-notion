@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+_capture/
+
+# Generated icon
+assets/icon.ico
+
+# Local config / secrets
+config.json
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

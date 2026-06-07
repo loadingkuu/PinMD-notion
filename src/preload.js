@@ -1,0 +1,31 @@
+'use strict';
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('api', {
+  getVersion: () => ipcRenderer.invoke('app:version'),
+  listFonts: () => ipcRenderer.invoke('app:fonts'),
+  getConfig: () => ipcRenderer.invoke('config:get'),
+  setConfig: (cfg) => ipcRenderer.invoke('config:set', cfg),
+  verify: (token, pageId) => ipcRenderer.invoke('notion:verify', { token, pageId }),
+  listNotes: () => ipcRenderer.invoke('notes:list'),
+  addNote: (text) => ipcRenderer.invoke('notes:add', text),
+  updateNote: (id, text) => ipcRenderer.invoke('notes:update', { id, text }),
+  setChecked: (id, on) => ipcRenderer.invoke('notes:checked', { id, on }),
+  pin: (id, on) => ipcRenderer.invoke('notes:pin', { id, on }),
+  complete: (id) => ipcRenderer.invoke('notes:complete', id),
+  listTrash: () => ipcRenderer.invoke('trash:list'),
+  restoreNote: (id) => ipcRenderer.invoke('trash:restore', id),
+  purgeNote: (id) => ipcRenderer.invoke('trash:purge', id),
+  close: () => ipcRenderer.invoke('win:close'),
+  minimize: () => ipcRenderer.invoke('win:minimize'),
+  setPin: (on) => ipcRenderer.invoke('win:pin', on),
+  setLock: (on) => ipcRenderer.invoke('win:lock', on),
+  isLocked: () => ipcRenderer.invoke('win:locked'),
+  onLockChange: (cb) => ipcRenderer.on('win:lock', (_e, locked) => cb(locked)),
+  setPosLock: (on) => ipcRenderer.invoke('win:poslock', on),
+  isPosLocked: () => ipcRenderer.invoke('win:poslocked'),
+  onPosLockChange: (cb) => ipcRenderer.on('win:poslock', (_e, v) => cb(v)),
+  dragStart: (x, y) => ipcRenderer.send('win:drag-start', { x, y }),
+  dragMove: () => ipcRenderer.send('win:drag-move'),
+  dragEnd: () => ipcRenderer.send('win:drag-end'),
+});

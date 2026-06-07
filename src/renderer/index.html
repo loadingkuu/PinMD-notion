@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
+  <title>Notion 待办</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- 列表 -->
+    <main id="list" class="list"></main>
+
+    <!-- 底部栏：默认渐隐，hover 显示。整条可拖动窗口（工具区除外） -->
+    <footer class="botbar">
+      <span id="app-ver" class="app-ver"></span>
+      <span id="status" class="status"></span>
+      <div class="spacer"></div>
+      <div class="tools">
+        <button id="btn-pin" title="窗口置顶">📌</button>
+        <button id="btn-poslock" title="锁定位置（防误拖，仍可操作）">📍</button>
+        <button id="btn-lock" title="完全锁定（置底+鼠标穿透，Ctrl+Alt+L 解锁）">🔓</button>
+        <button id="btn-refresh" title="刷新">⟳</button>
+        <button id="btn-trash" title="回收站">🗑</button>
+        <button id="btn-settings" title="设置">⚙</button>
+        <button id="btn-close" title="收进托盘">×</button>
+      </div>
+    </footer>
+
+    <!-- 回收站面板 -->
+    <div id="trash" class="trash hidden">
+      <header class="trash-head">
+        <button id="trash-back" title="返回">‹</button>
+        <span class="trash-title">回收站</span>
+      </header>
+      <main id="trash-list" class="trash-list"></main>
+      <footer id="trash-status" class="status"></footer>
+    </div>
+
+    <!-- 设置面板 -->
+    <div id="settings" class="settings hidden">
+      <div class="settings-scroll">
+        <h3>Notion 连接</h3>
+        <label>Integration Token
+          <input id="cfg-token" type="password" placeholder="secret_xxx 或 ntn_xxx" />
+        </label>
+        <label>主页面 ID 或链接
+          <input id="cfg-pageid" type="text" placeholder="粘贴页面链接，或 32 位 ID" />
+        </label>
+        <button id="btn-connect" class="primary">连接并保存</button>
+        <p id="login-msg" class="hint"></p>
+        <p class="hint">
+          需先在 notion.so/my-integrations 建 integration 拿 token；
+          再把目标页面 ··· → Connections 连上该 integration。
+          回收站子页面会自动创建。
+        </p>
+
+        <h3>外观</h3>
+        <label>背景不透明度 <span id="op-val"></span>
+          <input id="cfg-opacity" type="range" min="20" max="100" step="1" />
+        </label>
+        <label>字号 <span id="fs-val"></span>
+          <input id="cfg-fontsize" type="range" min="11" max="22" step="1" />
+        </label>
+        <label>字体
+          <select id="cfg-fontfamily">
+            <option value="">系统默认</option>
+          </select>
+        </label>
+        <label>自定义字体
+          <input id="cfg-fontcustom" type="text" />
+        </label>
+
+        <h3>其他</h3>
+        <label class="row"><input id="cfg-autostart" type="checkbox" /> 开机自动启动</label>
+        <p class="hint">提示：双击列表空白处即可新增待办。锁定后用托盘图标或 Ctrl+Alt+L 解锁。</p>
+      </div>
+      <div class="settings-actions">
+        <button id="cfg-close">关闭</button>
+        <p id="settings-ver" class="version">版本 1.0.0</p>
+      </div>
+    </div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

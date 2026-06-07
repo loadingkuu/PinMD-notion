@@ -1,0 +1,166 @@
+:root { --bg-alpha: 0.62; --font-size: 14px; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: transparent; }
+body {
+  font-family: "Microsoft YaHei", system-ui, sans-serif;
+  color: #f5f5f5;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.app {
+  position: relative;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(28, 30, 36, var(--bg-alpha));
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+/* 底部栏：整条可拖动；默认渐隐，hover 显示 */
+.botbar {
+  display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px;
+  -webkit-app-region: drag;
+  opacity: 0; transition: opacity .18s;
+}
+.botbar:hover { opacity: 1; }
+.botbar .spacer { flex: 1; height: 100%; }
+.app-ver {
+  display: flex; align-items: center;
+  font-size: 11px; color: rgba(255, 255, 255, 0.32); letter-spacing: 0.3px;
+}
+.tools { display: flex; gap: 2px; -webkit-app-region: no-drag; }
+.tools button {
+  width: 26px; height: 24px; padding: 0; border: none; border-radius: 6px;
+  background: transparent; color: #cfd2d8; font-size: 14px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+  font-family: "Segoe UI Symbol", system-ui, sans-serif;
+}
+.tools button:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+#btn-pin.on { background: rgba(255, 200, 80, 0.22); color: #ffc850; }
+#btn-poslock.on { background: rgba(110, 220, 160, 0.22); color: #7fe0b0; }
+#btn-lock.on { background: rgba(120, 170, 255, 0.25); color: #8fc0ff; }
+
+/* 列表 */
+.list { flex: 1; overflow-y: auto; padding: 2px 8px 10px; display: flex; flex-direction: column; gap: 1px; }
+.list::-webkit-scrollbar { width: 6px; }
+.list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 3px; }
+
+.card {
+  position: relative; display: flex; align-items: center; gap: 10px;
+  padding: 7px 30px 7px 8px; border-radius: 8px;
+  background: transparent; border: none; box-shadow: none;
+  font-size: var(--font-size, 14px); line-height: 1.45;
+  transition: background .12s, opacity .25s;
+}
+.card:hover { background: rgba(255, 255, 255, 0.06); }
+.card.pinned { background: rgba(255, 200, 80, 0.08); }
+
+/* 待办勾选框 */
+.check {
+  flex: 0 0 auto; width: 20px; height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.35); border-radius: 6px;
+  background: transparent; color: #fff; cursor: pointer;
+  font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  transition: background .15s, border-color .15s;
+}
+.check:hover { border-color: #4aa3ff; }
+.check.on { background: #2f8fe6; border-color: #2f8fe6; }
+.card-text { flex: 1; white-space: pre-wrap; word-break: break-word; color: #eef0f3; cursor: text; -webkit-user-select: text; user-select: text; }
+.card.done { opacity: 0.55; }
+.card.done .card-text { text-decoration: line-through; color: rgba(255, 255, 255, 0.4); }
+
+.acts { position: absolute; top: 50%; transform: translateY(-50%); right: 8px; display: flex; gap: 4px; opacity: 0.6; transition: opacity .15s; }
+.card:hover .acts { opacity: 1; }
+.act {
+  width: 22px; height: 22px; border: none; border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.7);
+  cursor: pointer; font-size: 12px;
+}
+.act:hover { background: rgba(255, 255, 255, 0.22); color: #fff; }
+.act.pin.on { color: #ffc850; background: rgba(255, 200, 80, 0.22); }
+
+/* 主列表置顶星：默认隐藏，hover 或已置顶时显示 */
+.list .acts { opacity: 0; }
+.list .card:hover .acts, .list .card.pinned .acts { opacity: 1; }
+
+.card-edit {
+  width: 100%; min-height: 48px; resize: vertical;
+  border: 1px solid #4aa3ff; border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25); color: #fff; font: inherit; line-height: 1.5; padding: 6px 8px;
+  -webkit-user-select: text; user-select: text;
+}
+.card-edit:focus { outline: none; }
+
+.empty { text-align: center; color: rgba(255, 255, 255, 0.4); padding: 30px 10px; font-size: 13px; }
+
+/* 状态条（内联于底部栏） */
+.status {
+  font-size: 11px; color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 48%;
+}
+.status.err { color: #ff8a8a; }
+/* 回收站面板里的状态条恢复成独立一行 */
+.trash #trash-status { max-width: none; padding: 4px 12px 8px; }
+
+/* 回收站悬浮按钮（右下角） */
+.trash-fab {
+  position: absolute; right: 10px; bottom: 8px;
+  width: 30px; height: 30px; padding: 0; border: none; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.55);
+  cursor: pointer; font-size: 15px; -webkit-app-region: no-drag;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+  opacity: 0.45; transition: opacity .15s, background .15s, color .15s;
+}
+.trash-fab:hover { opacity: 1; background: rgba(255, 255, 255, 0.2); color: #fff; }
+
+/* 回收站面板 */
+.trash { position: absolute; inset: 0; background: rgba(24, 26, 32, 0.97); display: flex; flex-direction: column; }
+.trash.hidden { display: none; }
+.trash-head { display: flex; align-items: center; gap: 6px; height: 38px; padding: 0 10px; -webkit-app-region: drag; }
+.trash-head button { -webkit-app-region: no-drag; width: 26px; height: 26px; border: none; border-radius: 6px; background: transparent; color: #cfd2d8; font-size: 20px; line-height: 1; cursor: pointer; }
+.trash-head button:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+.trash-title { font-size: 14px; color: #fff; }
+.trash-list { flex: 1; overflow-y: auto; padding: 0 10px 10px; display: flex; flex-direction: column; gap: 8px; }
+.trash-list::-webkit-scrollbar { width: 6px; }
+.trash-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 3px; }
+.trash-list .card { padding: 12px 58px 12px 18px; }
+.trash-list .card-text { color: rgba(255, 255, 255, 0.65); }
+.act.purge:hover { background: rgba(255, 90, 90, 0.3); color: #fff; }
+
+/* 设置面板 */
+.settings { position: absolute; inset: 0; background: rgba(24, 26, 32, 0.97); display: flex; flex-direction: column; }
+.settings.hidden { display: none; }
+.settings-scroll { flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.settings h3 { font-size: 14px; margin-top: 6px; color: #fff; }
+.settings h3:first-child { margin-top: 0; }
+.settings label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #c8ccd4; }
+.settings label.row { flex-direction: row; align-items: center; gap: 8px; }
+.settings input[type=text], .settings input[type=password] {
+  height: 32px; padding: 0 10px; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08); color: #fff; font-size: 13px;
+  -webkit-user-select: text; user-select: text;
+}
+.settings input[type=range] { width: 100%; }
+.settings select {
+  height: 32px; padding: 0 8px; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08); color: #fff; font-size: 13px;
+}
+.settings select option { color: #000; }
+.settings .hint { font-size: 11px; color: rgba(255, 255, 255, 0.5); line-height: 1.5; min-height: 14px; }
+.settings button {
+  height: 34px; border: none; border-radius: 8px; cursor: pointer; font-size: 13px;
+  background: rgba(255, 255, 255, 0.12); color: #fff;
+}
+.settings button.primary, #btn-login { background: #2f8fe6; }
+.settings button:hover { filter: brightness(1.1); }
+.advanced { margin-top: 6px; font-size: 12px; color: #c8ccd4; }
+.advanced summary { cursor: pointer; padding: 6px 0; }
+.advanced label { margin-top: 6px; }
+.advanced button { margin-top: 8px; width: 100%; }
+.settings-actions { padding: 10px 18px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.settings-actions button { width: 100%; }
+.settings-actions .version { margin: 8px 0 0; text-align: center; font-size: 11px; color: rgba(255, 255, 255, 0.4); }
