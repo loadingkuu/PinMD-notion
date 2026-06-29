@@ -8,24 +8,49 @@
 </head>
 <body>
   <div class="app">
-    <!-- 列表 -->
-    <main id="list" class="list"></main>
+    <!-- 左侧标签栏：每个标签 = 一个 Notion 页面 -->
+    <nav id="tabrail" class="tabrail"></nav>
 
-    <!-- 底部栏：默认渐隐，hover 显示。整条可拖动窗口（工具区除外） -->
-    <footer class="botbar">
-      <span id="app-ver" class="app-ver"></span>
-      <span id="status" class="status"></span>
-      <div class="spacer"></div>
-      <div class="tools">
-        <button id="btn-pin" title="窗口置顶">📌</button>
-        <button id="btn-poslock" title="锁定位置（防误拖，仍可操作）">📍</button>
-        <button id="btn-lock" title="完全锁定（置底+鼠标穿透，Ctrl+Alt+L 解锁）">🔓</button>
-        <button id="btn-refresh" title="刷新">⟳</button>
-        <button id="btn-trash" title="回收站">🗑</button>
-        <button id="btn-settings" title="设置">⚙</button>
-        <button id="btn-close" title="收进托盘">×</button>
+    <div class="content">
+      <!-- 列表 -->
+      <main id="list" class="list"></main>
+
+      <!-- 底部栏：默认渐隐，hover 显示。整条可拖动窗口（工具区除外） -->
+      <footer class="botbar">
+        <span id="app-ver" class="app-ver"></span>
+        <span id="status" class="status"></span>
+        <div class="spacer"></div>
+        <div class="tools">
+          <button id="btn-pin" title="窗口置顶">📌</button>
+          <button id="btn-poslock" title="锁定位置（防误拖，仍可操作）">📍</button>
+          <button id="btn-lock" title="完全锁定（置底+鼠标穿透，Ctrl+Alt+L 解锁）">🔓</button>
+          <button id="btn-refresh" title="刷新">⟳</button>
+          <button id="btn-trash" title="回收站">🗑</button>
+          <button id="btn-settings" title="设置">⚙</button>
+          <button id="btn-close" title="收进托盘">×</button>
+        </div>
+      </footer>
+    </div>
+
+    <!-- 标签右键菜单 -->
+    <div id="tabmenu" class="ctxmenu hidden">
+      <button data-act="rename">重命名</button>
+      <button data-act="color">设置颜色</button>
+      <button data-act="remove" class="danger">删除标签</button>
+    </div>
+
+    <!-- 通用小对话框（新增标签 / 重命名） -->
+    <div id="dialog" class="dialog hidden">
+      <div class="dialog-box">
+        <div id="dlg-title" class="dialog-title"></div>
+        <div id="dlg-fields" class="dialog-fields"></div>
+        <p id="dlg-msg" class="hint"></p>
+        <div class="dialog-actions">
+          <button id="dlg-cancel">取消</button>
+          <button id="dlg-ok" class="primary">确定</button>
+        </div>
       </div>
-    </footer>
+    </div>
 
     <!-- 回收站面板 -->
     <div id="trash" class="trash hidden">
@@ -44,15 +69,15 @@
         <label>Integration Token
           <input id="cfg-token" type="password" placeholder="secret_xxx 或 ntn_xxx" />
         </label>
-        <label>主页面 ID 或链接
+        <label>页面 ID 或链接（添加为标签，可留空）
           <input id="cfg-pageid" type="text" placeholder="粘贴页面链接，或 32 位 ID" />
         </label>
-        <button id="btn-connect" class="primary">连接并保存</button>
+        <button id="btn-connect" class="primary">保存并连接</button>
         <p id="login-msg" class="hint"></p>
         <p class="hint">
           需先在 notion.so/my-integrations 建 integration 拿 token；
           再把目标页面 ··· → Connections 连上该 integration。
-          回收站子页面会自动创建。
+          多个页面用左侧标签栏的 ＋ 添加，回收站子页面会按标签自动创建。
         </p>
 
         <h3>外观</h3>

@@ -44,20 +44,32 @@ function textToRich(text) {
   return s ? [{ type: 'text', text: { content: s } }] : [];
 }
 
-// 列出某页面下的全部 to_do 块（自动翻页）
-async function listTodoBlocks(token, pageId) {
+// 标签形式 → Notion 块类型：待办=to_do（带勾选框）；列表=bulleted_list_item（无勾选框）
+const BLOCK_TYPES = { todo: 'to_do', list: 'bulleted_list_item' };
+function blockTypeOf(cfg) { return BLOCK_TYPES[cfg && cfg.mode] || 'to_do'; }
+// 构造一个块；仅 to_do 带 checked 字段
+function makeBlock(type, rich, checked) {
+  const data = { rich_text: rich || [] };
+  if (type === 'to_do') data.checked = !!checked;
+  return { object: 'block', type, [type]: data };
+}
+
+// 列出某页面下指定类型的全部块（自动翻页）
+async function listBlocks(token, pageId, type) {
+  type = type || 'to_do';
   const out = [];
   let cursor;
   do {
     const qs = cursor ? `?start_cursor=${cursor}&page_size=100` : '?page_size=100';
     const data = await req(token, 'GET', `/blocks/${pageId}/children${qs}`);
     for (const b of data.results || []) {
-      if (b.type === 'to_do') {
+      if (b.type === type) {
+        const d = b[type] || {};
         out.push({
           id: b.id,
-          text: richToText(b.to_do.rich_text),
-          checked: !!b.to_do.checked,
-          rich: b.to_do.rich_text || [], // 保留原始富文本用于移动时无损复制
+          text: richToText(d.rich_text),
+          checked: !!d.checked,
+          rich: d.rich_text || [], // 保留原始富文本用于移动时无损复制
         });
       }
     }
@@ -70,27 +82,46 @@ async function listTodoBlocks(token, pageId) {
 const toView = (b) => ({ id: b.id, text: b.text, checked: b.checked });
 const blocks2view = (blocks) => blocks.map(toView);
 
-// ---- 配置：{ token, pageId, binPageId } ----
+// ---- 配置：{ token, pageId, binPageId, mode } ----
 async function listTodos(cfg) {
-  const blocks = await listTodoBlocks(cfg.token, cfg.pageId);
+  const blocks = await listBlocks(cfg.token, cfg.pageId, blockTypeOf(cfg));
   return blocks.map(toView);
 }
 
 async function addTodo(cfg, text) {
   await req(cfg.token, 'PATCH', `/blocks/${cfg.pageId}/children`, {
-    children: [{ object: 'block', type: 'to_do', to_do: { rich_text: textToRich(text), checked: false } }],
+    children: [makeBlock(blockTypeOf(cfg), textToRich(text), false)],
   });
   return listTodos(cfg);
 }
 
 async function updateTodo(cfg, id, text) {
-  await req(cfg.token, 'PATCH', `/blocks/${id}`, { to_do: { rich_text: textToRich(text) } });
+  await req(cfg.token, 'PATCH', `/blocks/${id}`, { [blockTypeOf(cfg)]: { rich_text: textToRich(text) } });
   return listTodos(cfg);
 }
 
+// 仅待办形式使用（列表形式无勾选框）
 async function setChecked(cfg, id, on) {
   await req(cfg.token, 'PATCH', `/blocks/${id}`, { to_do: { checked: !!on } });
   return listTodos(cfg);
+}
+
+const BIN_TITLE = '🗑 回收站';
+
+// 在页面的子块里找现成的回收站子页面（避免并发/失忆时重复创建）
+async function findBinChild(token, pageId) {
+  let cursor;
+  do {
+    const qs = cursor ? `?start_cursor=${cursor}&page_size=100` : '?page_size=100';
+    const data = await req(token, 'GET', `/blocks/${pageId}/children${qs}`);
+    for (const b of data.results || []) {
+      if (b.type === 'child_page' && !b.archived && b.child_page && b.child_page.title === BIN_TITLE) {
+        return b.id;
+      }
+    }
+    cursor = data.has_more ? data.next_cursor : null;
+  } while (cursor);
+  return null;
 }
 
 // 确保回收站子页面存在；不存在则在主页面下创建并返回其 id
@@ -103,24 +134,27 @@ async function ensureBinPage(cfg) {
       // 否则视为失效 → 落到下面重建
     } catch (e) { if (e.status !== 404) throw e; }
   }
+  // 优先复用已存在的回收站，杜绝重复创建
+  const existing = await findBinChild(cfg.token, cfg.pageId);
+  if (existing) return existing;
   const page = await req(cfg.token, 'POST', '/pages', {
     parent: { page_id: cfg.pageId },
-    properties: { title: { title: [{ text: { content: '🗑 回收站' } }] } },
+    properties: { title: { title: [{ text: { content: BIN_TITLE } }] } },
   });
   return page.id;
 }
 
-// 取某块的 to_do 内容（含富文本+勾选），用于复制
-async function fetchTodo(token, id) {
+// 取某块内容（含富文本+勾选），用于复制（不限类型）
+async function fetchBlock(token, id) {
   const b = await req(token, 'GET', `/blocks/${id}`);
-  if (b.type !== 'to_do') throw new Error('该块不是待办项');
-  return { rich: b.to_do.rich_text || [], checked: !!b.to_do.checked };
+  const d = b[b.type] || {};
+  return { type: b.type, rich: d.rich_text || [], checked: !!d.checked };
 }
 
-// 在目标页追加一个 to_do 块（复用源富文本）
-async function appendTodo(token, targetPageId, rich, checked) {
+// 在目标页追加一个指定类型的块（复用源富文本）
+async function appendBlock(token, targetPageId, type, rich, checked) {
   await req(token, 'PATCH', `/blocks/${targetPageId}/children`, {
-    children: [{ object: 'block', type: 'to_do', to_do: { rich_text: rich || [], checked: !!checked } }],
+    children: [makeBlock(type, rich || [], checked)],
   });
 }
 
@@ -132,8 +166,8 @@ async function deleteBlock(token, id) {
 // 挪进回收站：复制到回收站页 + 删除原块。返回最新主列表。
 async function moveToBin(cfg, id) {
   const binId = await ensureBinPage(cfg);
-  const src = await fetchTodo(cfg.token, id);
-  await appendTodo(cfg.token, binId, src.rich, true); // 进回收站统一标记为已完成
+  const src = await fetchBlock(cfg.token, id);
+  await appendBlock(cfg.token, binId, blockTypeOf(cfg), src.rich, true); // 待办进回收站统一标记为已完成
   await deleteBlock(cfg.token, id);
   return { notes: await listTodos(cfg), binPageId: binId };
 }
@@ -141,30 +175,48 @@ async function moveToBin(cfg, id) {
 // 回收站列表
 async function listBin(cfg) {
   const binId = await ensureBinPage(cfg);
-  const blocks = await listTodoBlocks(cfg.token, binId);
+  const blocks = await listBlocks(cfg.token, binId, blockTypeOf(cfg));
   return { notes: blocks.map(toView), binPageId: binId };
 }
 
 // 还原：复制回主页面（取消勾选）+ 从回收站删除
 async function restoreFromBin(cfg, id) {
   const binId = await ensureBinPage(cfg);
-  const src = await fetchTodo(cfg.token, id);
-  await appendTodo(cfg.token, cfg.pageId, src.rich, false);
+  const src = await fetchBlock(cfg.token, id);
+  await appendBlock(cfg.token, cfg.pageId, blockTypeOf(cfg), src.rich, false);
   await deleteBlock(cfg.token, id);
-  return { notes: blocks2view(await listTodoBlocks(cfg.token, binId)), binPageId: binId };
+  return { notes: blocks2view(await listBlocks(cfg.token, binId, blockTypeOf(cfg))), binPageId: binId };
 }
 
 // 彻底删除：直接删回收站里的块
 async function purgeFromBin(cfg, id) {
   const binId = await ensureBinPage(cfg);
   await deleteBlock(cfg.token, id);
-  return { notes: blocks2view(await listTodoBlocks(cfg.token, binId)), binPageId: binId };
+  return { notes: blocks2view(await listBlocks(cfg.token, binId, blockTypeOf(cfg))), binPageId: binId };
 }
 
-// 校验配置可用：能访问主页面即视为通过
+// 从页面对象里取标题（页面唯一的 title 类型属性）
+function pageTitle(page) {
+  const props = (page && page.properties) || {};
+  for (const k of Object.keys(props)) {
+    if (props[k] && props[k].type === 'title') return richToText(props[k].title);
+  }
+  return '';
+}
+
+// 在父页面下新建一个子页面（子页面自动继承父页面的 integration 连接）
+async function createChildPage(token, parentPageId, title) {
+  const name = String(title == null ? '' : title).slice(0, 2000) || '未命名';
+  return req(token, 'POST', '/pages', {
+    parent: { page_id: parentPageId },
+    properties: { title: { title: [{ text: { content: name } }] } },
+  });
+}
+
+// 校验配置可用：能访问主页面即视为通过；附带返回页面标题用作标签名
 async function verify(cfg) {
   const page = await req(cfg.token, 'GET', `/pages/${cfg.pageId}`);
-  return { ok: true, pageId: page.id };
+  return { ok: true, pageId: page.id, title: pageTitle(page) };
 }
 
 module.exports = {
@@ -173,6 +225,7 @@ module.exports = {
   updateTodo,
   setChecked,
   ensureBinPage,
+  createChildPage,
   moveToBin,
   listBin,
   restoreFromBin,

@@ -16,18 +16,79 @@ const TRAY_ICON = path.join(__dirname, '..', '..', 'assets', 'tray.png');
 function configPath() {
   return path.join(app.getPath('userData'), 'config.json');
 }
-const DEFAULTS = { token: '', pageId: '', binPageId: '', pinned: [], opacity: 0.62, fontSize: 14, fontFamily: '', autostart: false, alwaysOnTop: true };
-function loadConfig() {
-  try {
-    return Object.assign({}, DEFAULTS, JSON.parse(fs.readFileSync(configPath(), 'utf8')));
-  } catch (e) {
-    return Object.assign({}, DEFAULTS);
+// 多标签模型：tabs:[{ id, name, pageId, binPageId, pinned[] }]，token/外观为全局共享
+const DEFAULTS = { token: '', tabs: [], activeTabId: '', opacity: 0.62, fontSize: 14, fontFamily: '', autostart: false, alwaysOnTop: true };
+
+function newTabId() { return 't_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+
+// 旧版单页面配置 → 迁移成一个标签；并校正 activeTabId、清理遗留字段
+function migrate(cfg) {
+  if (!Array.isArray(cfg.tabs)) cfg.tabs = [];
+  if (cfg.tabs.length === 0 && cfg.pageId) {
+    cfg.tabs = [{
+      id: newTabId(), name: '待办', pageId: cfg.pageId, mode: 'todo',
+      binPageId: cfg.binPageId || '', pinned: Array.isArray(cfg.pinned) ? cfg.pinned : [],
+    }];
+    cfg.activeTabId = cfg.tabs[0].id;
   }
+  // 旧标签补默认形式
+  cfg.tabs.forEach((t) => { if (t.mode !== 'list') t.mode = 'todo'; });
+  delete cfg.pageId; delete cfg.binPageId; delete cfg.pinned;
+  if (!cfg.tabs.find((t) => t.id === cfg.activeTabId)) {
+    cfg.activeTabId = cfg.tabs.length ? cfg.tabs[0].id : '';
+  }
+  return cfg;
 }
-function saveConfig(patch) {
-  const cfg = Object.assign(loadConfig(), patch);
+
+function loadConfig() {
+  let cfg;
+  try {
+    cfg = Object.assign({}, DEFAULTS, JSON.parse(fs.readFileSync(configPath(), 'utf8')));
+  } catch (e) {
+    cfg = Object.assign({}, DEFAULTS);
+  }
+  return migrate(cfg);
+}
+function writeConfig(cfg) {
   fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), 'utf8');
   return cfg;
+}
+function saveConfig(patch) {
+  return writeConfig(Object.assign(loadConfig(), patch));
+}
+
+// 当前激活的标签（无则取第一个）
+function activeTab(cfg) {
+  cfg = cfg || loadConfig();
+  return cfg.tabs.find((t) => t.id === cfg.activeTabId) || cfg.tabs[0] || null;
+}
+// 更新某个标签字段
+function updateTab(id, patch) {
+  const cfg = loadConfig();
+  const i = cfg.tabs.findIndex((t) => t.id === id);
+  if (i < 0) return cfg;
+  cfg.tabs[i] = Object.assign({}, cfg.tabs[i], patch);
+  return writeConfig(cfg);
+}
+// 给渲染层的标签视图（不含富文本等内部数据）
+function tabsView() {
+  const c = loadConfig();
+  return {
+    tabs: c.tabs.map((t) => ({ id: t.id, name: t.name, pageId: t.pageId, mode: t.mode || 'todo', color: t.color || '', pinned: t.pinned || [] })),
+    activeTabId: c.activeTabId,
+    hasToken: !!c.token,
+  };
+}
+
+// ---- 列表内容本地缓存（启动/切换秒显，再后台刷新）----
+function cachePath() { return path.join(app.getPath('userData'), 'cache.json'); }
+function loadCache() {
+  try { return JSON.parse(fs.readFileSync(cachePath(), 'utf8')) || {}; } catch (e) { return {}; }
+}
+function saveCacheEntry(tabId, notes) {
+  const c = loadCache();
+  c[tabId] = notes || [];
+  try { fs.writeFileSync(cachePath(), JSON.stringify(c), 'utf8'); } catch (e) {}
 }
 function applyAutostart(on) {
   try {
@@ -189,14 +250,16 @@ app.on('window-all-closed', () => {});
 // ---- IPC ----
 function creds() {
   const c = loadConfig();
-  if (!c.token || !c.pageId) throw new Error('NO_CREDENTIALS');
-  return c;
+  const tab = activeTab(c);
+  if (!c.token || !tab || !tab.pageId) throw new Error('NO_CREDENTIALS');
+  return { token: c.token, pageId: tab.pageId, binPageId: tab.binPageId || '', mode: tab.mode || 'todo' };
 }
 
-// 若回收站子页面被自动创建，回写其 id
+// 若回收站子页面被自动创建，回写其 id 到当前激活的标签
 function persistBin(result) {
-  if (result && result.binPageId && result.binPageId !== loadConfig().binPageId) {
-    saveConfig({ binPageId: result.binPageId });
+  if (result && result.binPageId) {
+    const tab = activeTab();
+    if (tab && tab.binPageId !== result.binPageId) updateTab(tab.id, { binPageId: result.binPageId });
   }
   return result;
 }
@@ -224,7 +287,6 @@ ipcMain.handle('config:get', () => loadConfig());
 ipcMain.handle('config:set', (_e, patch) => {
   const clean = {};
   if (patch.token != null) clean.token = String(patch.token).trim();
-  if (patch.pageId != null) clean.pageId = normalizeId(patch.pageId);
   if (patch.opacity != null) clean.opacity = Number(patch.opacity);
   if (patch.fontSize != null) clean.fontSize = Number(patch.fontSize);
   if (patch.fontFamily != null) clean.fontFamily = String(patch.fontFamily);
@@ -232,9 +294,84 @@ ipcMain.handle('config:set', (_e, patch) => {
     clean.autostart = !!patch.autostart;
     applyAutostart(clean.autostart);
   }
-  // 改了 token 或主页面，旧的回收站 id 与本地置顶都作废
-  if (clean.token != null || clean.pageId != null) { clean.binPageId = ''; clean.pinned = []; }
   return saveConfig(clean);
+});
+
+// ---- 标签（多页面）----
+ipcMain.handle('tabs:list', () => tabsView());
+
+// 新增标签：校验页面可访问，默认用页面标题作标签名；已存在则直接激活
+ipcMain.handle('tabs:add', async (_e, { pageId, name, mode } = {}) => {
+  const c = loadConfig();
+  if (!c.token) throw new Error('NO_TOKEN');
+  const pid = normalizeId(pageId);
+  if (!pid || pid.length < 32) throw new Error('页面 ID 无效，请粘贴页面链接或 32 位 ID');
+  const exist = c.tabs.find((t) => t.pageId === pid);
+  if (exist) { saveConfig({ activeTabId: exist.id }); return tabsView(); }
+  const info = await notion.verify({ token: c.token, pageId: pid });
+  const tab = { id: newTabId(), name: (name && name.trim()) || info.title || '未命名', pageId: pid, mode: mode === 'list' ? 'list' : 'todo', binPageId: '', pinned: [] };
+  c.tabs.push(tab);
+  c.activeTabId = tab.id;
+  writeConfig(c);
+  return tabsView();
+});
+
+// 列表内容缓存
+ipcMain.handle('cache:load', () => loadCache());
+ipcMain.handle('cache:save', (_e, { tabId, notes } = {}) => { if (tabId) saveCacheEntry(tabId, notes); return true; });
+
+// 标签拖拽排序：按传入的 id 顺序重排
+ipcMain.handle('tabs:reorder', (_e, { ids } = {}) => {
+  const cfg = loadConfig();
+  if (Array.isArray(ids) && ids.length) {
+    const byId = new Map(cfg.tabs.map((t) => [t.id, t]));
+    const ordered = ids.map((id) => byId.get(id)).filter(Boolean);
+    cfg.tabs.forEach((t) => { if (!ids.includes(t.id)) ordered.push(t); });
+    cfg.tabs = ordered;
+    writeConfig(cfg);
+  }
+  return tabsView();
+});
+
+// 设置标签颜色（空字符串=无颜色）
+ipcMain.handle('tabs:color', (_e, { id, color } = {}) => {
+  updateTab(id, { color: color || '' });
+  return tabsView();
+});
+
+// 直接在根页面（或指定父页面）下用 API 新建一个子页面，并作为新标签
+ipcMain.handle('tabs:create', async (_e, { name, parentPageId, mode } = {}) => {
+  const c = loadConfig();
+  if (!c.token) throw new Error('NO_TOKEN');
+  // 默认建在“根页面”=第一个标签的页面，避免一层套一层
+  const parent = normalizeId(parentPageId || '') || ((c.tabs[0] || {}).pageId) || ((activeTab(c) || {}).pageId);
+  if (!parent) throw new Error('需要一个父页面：请先添加一个已连接的页面');
+  const title = String(name || '').trim() || '未命名';
+  const page = await notion.createChildPage(c.token, parent, title);
+  const tab = { id: newTabId(), name: title, pageId: normalizeId(page.id), mode: mode === 'list' ? 'list' : 'todo', binPageId: '', pinned: [] };
+  c.tabs.push(tab);
+  c.activeTabId = tab.id;
+  writeConfig(c);
+  return tabsView();
+});
+
+ipcMain.handle('tabs:rename', (_e, { id, name } = {}) => {
+  updateTab(id, { name: String(name || '').trim() || '未命名' });
+  return tabsView();
+});
+
+ipcMain.handle('tabs:remove', (_e, { id } = {}) => {
+  const cfg = loadConfig();
+  cfg.tabs = cfg.tabs.filter((t) => t.id !== id);
+  if (cfg.activeTabId === id) cfg.activeTabId = cfg.tabs.length ? cfg.tabs[0].id : '';
+  writeConfig(cfg);
+  return tabsView();
+});
+
+ipcMain.handle('tabs:activate', (_e, { id } = {}) => {
+  const cfg = loadConfig();
+  if (cfg.tabs.find((t) => t.id === id)) saveConfig({ activeTabId: id });
+  return tabsView();
 });
 
 // 把页面 URL 或带连字符的 id 归一化成 32 位无连字符 id（API 两种都接受，统一存储）
@@ -247,15 +384,15 @@ function normalizeId(input) {
   return hex.length >= 32 ? hex.slice(-32) : s;
 }
 
-// 校验 token + 主页面是否可用
-ipcMain.handle('notion:verify', (_e, { token, pageId }) =>
-  notion.verify({ token: String(token).trim(), pageId: normalizeId(pageId) }));
-
-// 本地置顶：仅存在本机配置，不写回 Notion
+// 本地置顶：仅存在本机配置（当前标签），不写回 Notion
 ipcMain.handle('notes:pin', (_e, { id, on }) => {
-  const set = new Set(loadConfig().pinned || []);
+  const tab = activeTab();
+  if (!tab) return [];
+  const set = new Set(tab.pinned || []);
   if (on) set.add(id); else set.delete(id);
-  return saveConfig({ pinned: [...set] }).pinned;
+  const updated = updateTab(tab.id, { pinned: [...set] });
+  const t = activeTab(updated);
+  return (t && t.pinned) || [];
 });
 
 ipcMain.handle('notes:list', () => notion.listTodos(creds()));

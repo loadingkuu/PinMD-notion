@@ -12,13 +12,104 @@ body {
   position: relative;
   height: 100vh;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   background: rgba(28, 30, 36, var(--bg-alpha));
   backdrop-filter: blur(18px);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 16px;
   overflow: hidden;
 }
+/* 列表+底栏的右侧主区 */
+.content { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* 左侧标签栏：竖排标签，每个标签 = 一个 Notion 页面 */
+.tabrail {
+  flex: 0 0 36px; width: 36px;
+  display: flex; flex-direction: column; align-items: stretch;
+  padding: 6px 0 8px; gap: 3px;
+  background: rgba(0, 0, 0, 0.20);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  overflow-y: auto; overflow-x: hidden;
+  -webkit-app-region: no-drag;
+}
+.tabrail::-webkit-scrollbar { width: 0; height: 0; }
+.tab {
+  writing-mode: vertical-rl;
+  flex: 0 0 auto; max-height: 128px;
+  margin: 0 3px; padding: 9px 5px;
+  border: none; border-radius: 7px;
+  background: transparent; color: rgba(255, 255, 255, 0.55);
+  font-size: 12px; line-height: 1.1; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s;
+}
+.tab:hover { background: rgba(255, 255, 255, 0.10); color: #fff; }
+.tab.active { background: rgba(120, 170, 255, 0.25); color: #fff; }
+/* 颜色标签：内侧彩色条 */
+.tab.colored { border-left: 3px solid transparent; }
+.tab.active { box-shadow: inset 2px 0 0 #8fc0ff; }
+.tab.active.colored { box-shadow: none; }
+/* 拖拽排序 */
+.tab.dragging { opacity: 0.4; }
+.tab.dragover { box-shadow: inset 0 3px 0 #8fc0ff; }
+.tab-rename {
+  writing-mode: horizontal-tb; width: 30px; margin: 0 3px;
+  border: 1px solid #4aa3ff; border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3); color: #fff; font: inherit; font-size: 12px;
+  text-align: center; padding: 4px 2px;
+  -webkit-user-select: text; user-select: text;
+}
+.tab-rename:focus { outline: none; }
+.tab-add {
+  flex: 0 0 auto; margin: 4px 4px 0; padding: 5px 0;
+  border: 1px dashed rgba(255, 255, 255, 0.22); border-radius: 7px;
+  background: transparent; color: rgba(255, 255, 255, 0.5);
+  font-size: 16px; line-height: 1; cursor: pointer;
+}
+.tab-add:hover { color: #fff; border-color: rgba(255, 255, 255, 0.5); }
+
+/* 标签右键菜单 */
+.ctxmenu {
+  position: absolute; z-index: 30; min-width: 110px;
+  background: rgba(40, 43, 51, 0.98); border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px; padding: 4px; display: flex; flex-direction: column; gap: 2px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+.ctxmenu.hidden { display: none; }
+.ctxmenu button {
+  border: none; background: transparent; color: #e6e8ec; cursor: pointer;
+  text-align: left; padding: 7px 10px; border-radius: 6px; font-size: 13px;
+}
+.ctxmenu button:hover { background: rgba(255, 255, 255, 0.12); }
+.ctxmenu button.danger:hover { background: rgba(255, 90, 90, 0.3); }
+
+/* 通用对话框 */
+.dialog { position: absolute; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.45); }
+.dialog.hidden { display: none; }
+.dialog-box { width: 82%; max-width: 280px; background: rgba(34, 37, 44, 0.99); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.dialog-title { font-size: 14px; color: #fff; font-weight: 600; }
+.dialog-fields { display: flex; flex-direction: column; gap: 8px; }
+.dialog-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #c8ccd4; }
+.dlg-modes { display: flex; gap: 14px; margin-bottom: 2px; }
+.dlg-modes label { flex-direction: row; align-items: center; gap: 5px; font-size: 13px; color: #e6e8ec; cursor: pointer; }
+.dlg-modes input { width: auto; height: auto; }
+.dlg-formlabel { font-size: 13px; color: #c8ccd4; }
+
+/* 颜色色板 */
+.color-row { display: flex; gap: 10px; flex-wrap: wrap; padding: 4px 0; }
+.swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.swatch:hover { transform: scale(1.12); }
+.swatch.sel { border-color: #fff; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25); }
+.swatch.none { background: rgba(255, 255, 255, 0.10); position: relative; color: rgba(255, 255, 255, 0.6); font-size: 16px; }
+.swatch.none::after { content: '∅'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.dialog-fields .hint { font-size: 11px; color: rgba(255, 255, 255, 0.5); line-height: 1.5; }
+.dialog-fields input { height: 32px; padding: 0 10px; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 8px; background: rgba(255, 255, 255, 0.08); color: #fff; font-size: 13px; -webkit-user-select: text; user-select: text; }
+.dialog-fields input:focus { outline: none; border-color: #4aa3ff; }
+.dialog-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.dialog-actions button { height: 32px; padding: 0 14px; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; background: rgba(255, 255, 255, 0.12); color: #fff; }
+.dialog-actions button.primary { background: #2f8fe6; }
+.dialog-actions button:hover { filter: brightness(1.1); }
 
 /* 底部栏：整条可拖动；默认渐隐，hover 显示 */
 .botbar {
@@ -69,6 +160,9 @@ body {
 }
 .check:hover { border-color: #4aa3ff; }
 .check.on { background: #2f8fe6; border-color: #2f8fe6; }
+/* 列表形式：项目符号 */
+.bullet { flex: 0 0 auto; width: 20px; text-align: center; color: rgba(255, 255, 255, 0.5); font-size: 16px; line-height: 1; }
+.card.listmode { padding-left: 4px; }
 .card-text { flex: 1; white-space: pre-wrap; word-break: break-word; color: #eef0f3; cursor: text; -webkit-user-select: text; user-select: text; }
 .card.done { opacity: 0.55; }
 .card.done .card-text { text-decoration: line-through; color: rgba(255, 255, 255, 0.4); }

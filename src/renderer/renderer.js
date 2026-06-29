@@ -6,7 +6,17 @@ const statusEl = $('status');
 const settingsEl = $('settings');
 
 let notesCache = [];
-let pinnedSet = new Set(); // 本地置顶的块 ID
+const notesByTab = {}; // 每个标签的最近一次列表缓存，切换时先用缓存秒显，再后台刷新
+let pinnedSet = new Set(); // 本地置顶的块 ID（当前标签）
+let tabsState = { tabs: [], activeTabId: '', hasToken: false };
+
+function getActiveTab() {
+  return tabsState.tabs.find((t) => t.id === tabsState.activeTabId) || null;
+}
+function activeMode() {
+  const t = getActiveTab();
+  return (t && t.mode) || 'todo';
+}
 
 // 置顶项排到前面，组内保持原顺序
 function sortNotes(notes) {
@@ -47,11 +57,12 @@ function runBg(promise, onOk, onErr) {
 // ---------- 渲染 ----------
 function render(notes) {
   notesCache = sortNotes(notes || []);
+  if (tabsState.activeTabId) notesByTab[tabsState.activeTabId] = notesCache;
   listEl.innerHTML = '';
   if (notesCache.length === 0) {
     const d = document.createElement('div');
     d.className = 'empty';
-    d.textContent = '没有待办，双击空白处添加～';
+    d.textContent = (activeMode() === 'list' ? '还没有内容' : '没有待办') + '，双击空白处添加～';
     listEl.appendChild(d);
     return;
   }
@@ -59,20 +70,29 @@ function render(notes) {
 }
 
 function makeCard(n) {
+  const list = activeMode() === 'list';
   const card = document.createElement('div');
-  card.className = 'card' + (pinnedSet.has(n.id) ? ' pinned' : '');
+  card.className = 'card' + (pinnedSet.has(n.id) ? ' pinned' : '') + (list ? ' listmode' : '');
 
-  // 勾选框：勾选 = 完成 → 挪进回收站
-  const chk = document.createElement('button');
-  chk.className = 'check';
-  chk.title = '完成（移入回收站）';
-  chk.addEventListener('click', () => {
-    chk.classList.add('on');
-    chk.textContent = '✓';
-    card.classList.add('done');
-    completeNote(n);
-  });
-  card.appendChild(chk);
+  if (list) {
+    // 列表形式：无勾选框，仅一个项目符号
+    const dot = document.createElement('span');
+    dot.className = 'bullet';
+    dot.textContent = '•';
+    card.appendChild(dot);
+  } else {
+    // 待办形式：勾选框，勾选 = 完成 → 挪进回收站
+    const chk = document.createElement('button');
+    chk.className = 'check';
+    chk.title = '完成（移入回收站）';
+    chk.addEventListener('click', () => {
+      chk.classList.add('on');
+      chk.textContent = '✓';
+      card.classList.add('done');
+      completeNote(n);
+    });
+    card.appendChild(chk);
+  }
 
   const text = document.createElement('div');
   text.className = 'card-text';
@@ -80,9 +100,9 @@ function makeCard(n) {
   text.addEventListener('dblclick', () => startEdit(card, n));
   card.appendChild(text);
 
-  // 置顶星标（本地）
   const acts = document.createElement('div');
   acts.className = 'acts';
+  // 置顶星标（本地）
   const pin = document.createElement('button');
   const on = pinnedSet.has(n.id);
   pin.className = 'act pin' + (on ? ' on' : '');
@@ -90,8 +110,18 @@ function makeCard(n) {
   pin.title = on ? '取消置顶' : '置顶';
   pin.addEventListener('click', () => togglePin(n));
   acts.appendChild(pin);
-  card.appendChild(acts);
 
+  if (list) {
+    // 列表形式用删除按钮把项目移入回收站（替代勾选完成）
+    const del = document.createElement('button');
+    del.className = 'act purge';
+    del.textContent = '✕';
+    del.title = '删除（移入回收站）';
+    del.addEventListener('click', () => completeNote(n));
+    acts.appendChild(del);
+  }
+
+  card.appendChild(acts);
   return card;
 }
 
@@ -106,11 +136,13 @@ function togglePin(note) {
 }
 
 // ---------- 增删改 ----------
-async function refresh() {
+async function refresh(silent) {
   try {
-    setStatus('加载中…');
+    if (!silent) setStatus('加载中…');
+    const tabId = tabsState.activeTabId;
     const notes = await window.api.listNotes();
     render(notes);
+    if (tabId) window.api.saveCache(tabId, notes); // 持久化缓存，下次启动秒显
     setStatus(`共 ${notes.length} 条 · ${new Date().toLocaleTimeString()}`);
   } catch (e) { handleErr(e); }
 }
@@ -298,11 +330,309 @@ async function reloadTrash() {
   try { renderTrash(await window.api.listTrash()); } catch (e) {}
 }
 
+// ---------- 标签（多页面） ----------
+const tabrailEl = $('tabrail');
+const tabmenuEl = $('tabmenu');
+let menuTabId = null; // 右键菜单当前作用的标签
+
+// 十六进制色 → rgba（用于标签底色）
+function hexA(hex, a) {
+  const n = parseInt(String(hex).slice(1), 16);
+  if (isNaN(n)) return 'transparent';
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+
+let dragId = null; // 拖拽中的标签 id
+
+function renderTabs() {
+  tabrailEl.innerHTML = '';
+  tabsState.tabs.forEach((t) => {
+    const active = t.id === tabsState.activeTabId;
+    const b = document.createElement('button');
+    b.className = 'tab' + (active ? ' active' : '') + (t.color ? ' colored' : '');
+    b.textContent = t.name || '未命名';
+    b.title = (t.name || '未命名') + '（双击重命名 · 右键更多 · 可拖动排序）';
+    if (t.color) {
+      b.style.borderLeftColor = t.color;
+      b.style.background = active ? hexA(t.color, 0.32) : hexA(t.color, 0.10);
+    }
+    b.addEventListener('click', () => switchTab(t.id));
+    b.addEventListener('dblclick', (e) => { e.preventDefault(); beginRename(t.id); });
+    b.addEventListener('contextmenu', (e) => { e.preventDefault(); openTabMenu(e, t.id); });
+    // 拖拽排序
+    b.draggable = true;
+    b.addEventListener('dragstart', (e) => { dragId = t.id; b.classList.add('dragging'); try { e.dataTransfer.effectAllowed = 'move'; } catch (_) {} });
+    b.addEventListener('dragend', () => { dragId = null; b.classList.remove('dragging'); tabrailEl.querySelectorAll('.tab').forEach((x) => x.classList.remove('dragover')); });
+    b.addEventListener('dragover', (e) => { if (dragId && dragId !== t.id) { e.preventDefault(); b.classList.add('dragover'); } });
+    b.addEventListener('dragleave', () => b.classList.remove('dragover'));
+    b.addEventListener('drop', (e) => { e.preventDefault(); b.classList.remove('dragover'); onDropTab(t.id); });
+    tabrailEl.appendChild(b);
+  });
+  const add = document.createElement('button');
+  add.className = 'tab-add';
+  add.textContent = '＋';
+  add.title = '添加 Notion 页面标签';
+  add.addEventListener('click', addTabFlow);
+  tabrailEl.appendChild(add);
+}
+
+async function onDropTab(targetId) {
+  if (!dragId || dragId === targetId) return;
+  const ids = tabsState.tabs.map((t) => t.id);
+  const from = ids.indexOf(dragId), to = ids.indexOf(targetId);
+  if (from < 0 || to < 0) return;
+  ids.splice(to, 0, ids.splice(from, 1)[0]);
+  // 乐观重排
+  const byId = new Map(tabsState.tabs.map((t) => [t.id, t]));
+  tabsState.tabs = ids.map((id) => byId.get(id));
+  renderTabs();
+  tabsState = await window.api.reorderTabs(ids);
+  renderTabs();
+}
+
+function syncPinnedFromActive() {
+  const at = getActiveTab();
+  pinnedSet = new Set(at ? (at.pinned || []) : []);
+}
+
+async function loadTabs() {
+  tabsState = await window.api.listTabs();
+  renderTabs();
+  syncPinnedFromActive();
+}
+
+async function switchTab(id) {
+  if (id === tabsState.activeTabId) return;
+  // 乐观立即切换 UI：先用缓存秒显，避免等网络
+  tabsState.activeTabId = id;
+  renderTabs();
+  syncPinnedFromActive();
+  const cached = notesByTab[id];
+  if (cached) { render(cached); setStatus(`共 ${cached.length} 条 · 同步中…`); }
+  else { render([]); setStatus('加载中…'); }
+  // 持久化激活态后再拉取（确保后端按新标签读取）
+  tabsState = await window.api.activateTab(id);
+  syncPinnedFromActive();
+  refresh(!!cached);
+}
+
+function addTabFlow() {
+  if (!tabsState.hasToken) {
+    setStatus('请先在设置里填写 Notion Token', true);
+    openSettings();
+    return;
+  }
+  const canCreate = tabsState.tabs.length > 0; // 新建子页面需要一个父页面
+  $('dlg-title').textContent = '添加标签';
+  $('dlg-msg').textContent = '';
+  const wrap = $('dlg-fields');
+  wrap.innerHTML = '';
+
+  // 模式选择：新建页面 / 添加已有
+  const modes = document.createElement('div');
+  modes.className = 'dlg-modes';
+  modes.innerHTML =
+    `<label><input type="radio" name="addmode" value="new"${canCreate ? ' checked' : ' disabled'}> 新建页面</label>` +
+    `<label><input type="radio" name="addmode" value="exist"${canCreate ? '' : ' checked'}> 添加已有</label>`;
+  wrap.appendChild(modes);
+
+  // 形式：待办（带勾选框）/ 列表（无勾选框）
+  const formRow = document.createElement('div');
+  formRow.className = 'dlg-modes';
+  formRow.innerHTML =
+    `<span class="dlg-formlabel">形式</span>` +
+    `<label><input type="radio" name="tabform" value="todo" checked> 待办</label>` +
+    `<label><input type="radio" name="tabform" value="list"> 列表</label>`;
+  wrap.appendChild(formRow);
+
+  // 新建页面
+  const newBox = document.createElement('div');
+  newBox.className = 'dlg-fields';
+  const rootName = (tabsState.tabs[0] && tabsState.tabs[0].name) || '根页面';
+  newBox.innerHTML =
+    `<label>页面名称<input id="dlg-newname" type="text" placeholder="例如：工作 / 购物清单"></label>` +
+    `<p class="hint">将在「${rootName}」下新建子页面，自动连好，无需手动操作。</p>`;
+
+  // 添加已有
+  const existBox = document.createElement('div');
+  existBox.className = 'dlg-fields';
+  existBox.innerHTML =
+    `<label>页面 ID 或链接<input id="dlg-pageid" type="text" placeholder="粘贴页面链接，或 32 位 ID"></label>` +
+    `<label>标签名（留空取页面标题）<input id="dlg-existname" type="text" placeholder="可选"></label>` +
+    `<p class="hint">需先在该页面 ··· → Connections 连上你的 integration。</p>`;
+
+  wrap.appendChild(newBox);
+  wrap.appendChild(existBox);
+
+  const getMode = () => (wrap.querySelector('input[name=addmode]:checked') || {}).value;
+  const applyMode = () => {
+    const m = getMode();
+    newBox.style.display = m === 'new' ? '' : 'none';
+    existBox.style.display = m === 'exist' ? '' : 'none';
+    const f = m === 'new' ? $('dlg-newname') : $('dlg-pageid');
+    if (f) setTimeout(() => f.focus(), 0);
+  };
+  modes.querySelectorAll('input[name=addmode]').forEach((r) => r.addEventListener('change', applyMode));
+  applyMode();
+
+  wrap.querySelectorAll('input[type=text]').forEach((inp) => {
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); doDlgOk(); }
+      if (e.key === 'Escape') { e.preventDefault(); closeDialog(); }
+    });
+  });
+
+  const getForm = () => ((wrap.querySelector('input[name=tabform]:checked') || {}).value) || 'todo';
+  dlgSubmit = async () => {
+    if (getMode() === 'new') {
+      const name = $('dlg-newname').value.trim();
+      if (!name) throw new Error('请填页面名称');
+      tabsState = await window.api.createTab(name, getForm());
+    } else {
+      const pid = $('dlg-pageid').value.trim();
+      if (!pid) throw new Error('请填页面链接或 ID');
+      tabsState = await window.api.addTab(pid, $('dlg-existname').value.trim(), getForm());
+    }
+    renderTabs();
+    syncPinnedFromActive();
+    refresh();
+  };
+  dialogEl.classList.remove('hidden');
+}
+
+function beginRename(id) {
+  const t = tabsState.tabs.find((x) => x.id === id);
+  if (!t) return;
+  openDialog({
+    title: '重命名标签',
+    fields: [{ key: 'name', label: '标签名', value: t.name || '', autofocus: true }],
+    onSubmit: async (v) => {
+      tabsState = await window.api.renameTab(id, v.name.trim());
+      renderTabs();
+    },
+  });
+}
+
+async function removeTab(id) {
+  const t = tabsState.tabs.find((x) => x.id === id);
+  if (!t) return;
+  if (!window.confirm(`删除标签「${t.name || '未命名'}」？\n仅从悬浮窗移除，不会删除 Notion 页面。`)) return;
+  const wasActive = id === tabsState.activeTabId;
+  delete notesByTab[id];
+  tabsState = await window.api.removeTab(id);
+  renderTabs();
+  syncPinnedFromActive();
+  if (wasActive) {
+    if (getActiveTab()) refresh();
+    else { render([]); setStatus('没有标签了，点左侧 ＋ 添加一个页面'); }
+  }
+}
+
+// 标签右键菜单
+function openTabMenu(e, id) {
+  menuTabId = id;
+  tabmenuEl.classList.remove('hidden');
+  const mw = tabmenuEl.offsetWidth, mh = tabmenuEl.offsetHeight;
+  let x = e.clientX, y = e.clientY;
+  if (x + mw > window.innerWidth) x = window.innerWidth - mw - 4;
+  if (y + mh > window.innerHeight) y = window.innerHeight - mh - 4;
+  tabmenuEl.style.left = x + 'px';
+  tabmenuEl.style.top = y + 'px';
+}
+function closeTabMenu() { tabmenuEl.classList.add('hidden'); menuTabId = null; }
+tabmenuEl.addEventListener('click', (e) => {
+  const act = e.target.dataset && e.target.dataset.act;
+  const id = menuTabId;
+  closeTabMenu();
+  if (!id) return;
+  if (act === 'rename') beginRename(id);
+  else if (act === 'color') openColorDialog(id);
+  else if (act === 'remove') removeTab(id);
+});
+
+// 标签颜色选择
+function openColorDialog(id) {
+  const t = tabsState.tabs.find((x) => x.id === id);
+  if (!t) return;
+  $('dlg-title').textContent = '标签颜色';
+  $('dlg-msg').textContent = '';
+  const wrap = $('dlg-fields');
+  wrap.innerHTML = '';
+  const palette = ['', '#e0556b', '#e0843c', '#e0bf3c', '#5bb46a', '#3c9ee0', '#7b6fe0', '#c45bd0'];
+  const row = document.createElement('div');
+  row.className = 'color-row';
+  palette.forEach((c) => {
+    const sw = document.createElement('button');
+    sw.className = 'swatch' + ((t.color || '') === c ? ' sel' : '') + (c ? '' : ' none');
+    if (c) sw.style.background = c;
+    sw.title = c || '无颜色';
+    sw.addEventListener('click', async () => {
+      tabsState = await window.api.setTabColor(id, c);
+      renderTabs();
+      closeDialog();
+    });
+    row.appendChild(sw);
+  });
+  wrap.appendChild(row);
+  dlgSubmit = async () => {}; // 点色块即生效；“确定”仅关闭
+  dialogEl.classList.remove('hidden');
+}
+document.addEventListener('mousedown', (e) => { if (!tabmenuEl.contains(e.target)) closeTabMenu(); });
+
+// ---------- 通用对话框（新增标签 / 重命名） ----------
+const dialogEl = $('dialog');
+let dlgSubmit = null;
+function openDialog({ title, fields, onSubmit }) {
+  $('dlg-title').textContent = title || '';
+  $('dlg-msg').textContent = '';
+  const wrap = $('dlg-fields');
+  wrap.innerHTML = '';
+  const inputs = {};
+  (fields || []).forEach((f) => {
+    const label = document.createElement('label');
+    label.textContent = f.label || '';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = f.value || '';
+    if (f.placeholder) input.placeholder = f.placeholder;
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); doDlgOk(); }
+      if (e.key === 'Escape') { e.preventDefault(); closeDialog(); }
+    });
+    label.appendChild(input);
+    wrap.appendChild(label);
+    inputs[f.key] = input;
+    if (f.autofocus) setTimeout(() => { input.focus(); input.select(); }, 0);
+  });
+  dlgSubmit = async () => {
+    const values = {};
+    Object.keys(inputs).forEach((k) => { values[k] = inputs[k].value; });
+    await onSubmit(values);
+  };
+  dialogEl.classList.remove('hidden');
+}
+function closeDialog() { dialogEl.classList.add('hidden'); dlgSubmit = null; }
+async function doDlgOk() {
+  if (!dlgSubmit) return;
+  $('dlg-ok').disabled = true;
+  $('dlg-msg').textContent = '处理中…';
+  try {
+    await dlgSubmit();
+    closeDialog();
+  } catch (err) {
+    $('dlg-msg').textContent = '失败: ' + ((err && err.message) || err);
+  } finally {
+    $('dlg-ok').disabled = false;
+  }
+}
+$('dlg-ok').addEventListener('click', doDlgOk);
+$('dlg-cancel').addEventListener('click', closeDialog);
+
 // ---------- 设置 ----------
 async function openSettings() {
   const cfg = await window.api.getConfig();
   $('cfg-token').value = cfg.token || '';
-  $('cfg-pageid').value = cfg.pageId || '';
+  $('cfg-pageid').value = '';
   $('cfg-autostart').checked = !!cfg.autostart;
   const pct = Math.round((cfg.opacity ?? 0.62) * 100);
   $('cfg-opacity').value = pct;
@@ -334,16 +664,19 @@ async function populateFonts(selected) {
 $('btn-connect').addEventListener('click', async () => {
   const token = $('cfg-token').value.trim();
   const pageId = $('cfg-pageid').value.trim();
-  if (!token || !pageId) { $('login-msg').textContent = '请填 token 和页面 ID'; return; }
-  $('login-msg').textContent = '验证中…';
+  if (!token) { $('login-msg').textContent = '请填 Token'; return; }
+  $('login-msg').textContent = '保存中…';
   try {
-    await window.api.verify(token, pageId);
-    await window.api.setConfig({ token, pageId });
-    $('login-msg').textContent = '连接成功 ✅';
-    closeSettings();
-    refresh();
+    await window.api.setConfig({ token });
+    if (pageId) {
+      await window.api.addTab(pageId);
+      $('cfg-pageid').value = '';
+    }
+    await loadTabs();
+    $('login-msg').textContent = '已保存 ✅';
+    if (getActiveTab()) { closeSettings(); refresh(); }
   } catch (e) {
-    $('login-msg').textContent = '连接失败: ' + ((e && e.message) || e);
+    $('login-msg').textContent = '失败: ' + ((e && e.message) || e);
   }
 });
 
@@ -459,12 +792,14 @@ async function autoRefresh() {
   if (!settingsEl.classList.contains('hidden')) return; // 设置打开时不拉
   if (!trashEl.classList.contains('hidden')) return;    // 回收站打开时不拉
   if (listEl.querySelector('.card-edit')) return;       // 正在编辑时不拉
-  const cfg = await window.api.getConfig();
-  if (!cfg.token || !cfg.pageId) return;
+  if (!dialogEl.classList.contains('hidden')) return;   // 对话框打开时不拉
+  if (!tabsState.hasToken || !getActiveTab()) return;
   polling = true;
   try {
+    const tabId = tabsState.activeTabId;
     const notes = await window.api.listNotes();
     render(notes);
+    if (tabId) window.api.saveCache(tabId, notes);
     setStatus(`共 ${notes.length} 条 · ${new Date().toLocaleTimeString()}`);
   } catch (e) {
     // 自动刷新失败静默处理，不打断用户操作
@@ -482,17 +817,23 @@ setInterval(autoRefresh, POLL_MS);
     $('settings-ver').textContent = '版本 ' + v;
   } catch (e) {}
   const cfg = await window.api.getConfig();
-  pinnedSet = new Set(cfg.pinned || []);
   applyOpacity(Math.round((cfg.opacity ?? 0.62) * 100));
   applyFont(cfg);
   winPinned = cfg.alwaysOnTop !== false;
   reflectPin();
   reflectPosLock();
   reflectLock();
-  if (!cfg.token || !cfg.pageId) {
+  await loadTabs();
+  try { Object.assign(notesByTab, (await window.api.loadCache()) || {}); } catch (e) {}
+  if (!tabsState.hasToken) {
     setStatus('请先在设置里连接 Notion', true);
     openSettings();
+  } else if (!getActiveTab()) {
+    render([]);
+    setStatus('点左侧 ＋ 添加一个 Notion 页面', true);
   } else {
-    refresh();
+    const cached = notesByTab[tabsState.activeTabId];
+    if (cached) { render(cached); setStatus(`共 ${cached.length} 条 · 同步中…`); refresh(true); }
+    else { refresh(); }
   }
 })();
