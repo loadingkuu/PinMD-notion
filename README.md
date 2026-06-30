@@ -7,10 +7,15 @@
 
 ## ✨ 功能特性
 
+- **多标签切换**：左侧竖排标签栏，每个标签对应一个 Notion 页面。单击切换、双击重命名、右键菜单、**拖拽排序**、**自定义颜色**。
+- **两种形式**：每个标签可选——
+  - *待办*：带勾选框，勾选即完成（移入回收站）。
+  - *列表*：无勾选框的清单项，点 ✕ 删除（移入回收站）。
+- **直接新建页面**：在 ＋ 里「新建页面」就能用 API 在根页面下创建子页面（自动连好，无需手动操作），或「添加已有」粘贴链接接入现成页面。
 - **悬浮常驻**：无边框透明窗口，可置顶显示，记忆窗口位置与大小。
-- **直连 Notion**：读取指定 Notion 页面下的待办块，支持新增、编辑、勾选完成。
-- **回收站机制**：勾选完成的待办会移动到 Notion 子页面（回收站），可恢复或彻底删除，不会误删。
-- **本地置顶**：把重要待办置顶显示（仅存本机，不写回 Notion）。
+- **回收站机制**：完成/删除的条目会移到各标签独立的 Notion 子页面（回收站），可恢复或彻底删除，不会误删。
+- **本地置顶**：把重要条目置顶显示（仅存本机，不写回 Notion）。
+- **启动秒显**：内容本地缓存，打开软件与切换标签立即显示，再后台同步。
 - **两种锁定模式**：
   - *锁定位置*：固定窗口位置/大小，窗口仍可正常操作。
   - *完全锁定*（`Ctrl+Alt+L`）：鼠标穿透 + 降低存在感，像贴在桌面上的便签；单击托盘图标或再次按快捷键解锁。
@@ -19,15 +24,17 @@
 
 ## 📦 下载使用（无需开发环境）
 
-1. 前往 [Releases](https://github.com/loadingkuu/PinMD-notion/releases) 下载最新的 `PinMD-notion-vX.X.X-win-x64.zip`。
-2. 解压后运行 `Notion-Float.exe`。
-3. 首次打开在设置里填入 **Integration Token** 和 **页面 ID**（见下方）。
+1. 前往 [Releases](https://github.com/loadingkuu/PinMD-notion/releases/latest) 下载最新的 `PinMD-notion-vX.X.X-win-x64.zip`。
+2. 解压后运行 `Notion-Float.exe`（绿色免安装）。
+3. 首次打开在设置里填入 **Integration Token**（见下方），再用左侧 ＋ 添加 Notion 页面。
 
 ## 🔑 配置 Notion
 
 1. 打开 [notion.so/my-integrations](https://www.notion.so/my-integrations)，新建一个 integration，复制它的 **Internal Integration Token**（`secret_xxx` 或 `ntn_xxx`）。
-2. 打开你想用作待办列表的 Notion 页面，点右上角 `•••` → **Connections** → 添加刚才创建的 integration（**否则无权限读取**）。
-3. 复制该页面的链接或页面 ID，填进应用设置里的「页面 ID」（URL 或带连字符的 ID 都能识别）。
+2. 打开你想用作清单的 Notion 页面，点右上角 `•••` → **Connections** → 添加刚才创建的 integration（**否则无权限读取**）。
+3. 在软件设置里填入 Token，再用左侧标签栏的 ＋：
+   - **添加已有**：粘贴上一步那个页面的链接或 ID（URL 或带连字符的 ID 都能识别）。
+   - **新建页面**：直接起个名字，软件会在根页面下建子页面并自动连好（子页面继承父页面的连接，无需再手动 Connections）。
 
 > Token 仅保存在本机 `%AppData%/notion-float/config.json`，不会上传到任何地方。
 
